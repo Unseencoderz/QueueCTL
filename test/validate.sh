@@ -174,7 +174,7 @@ scenario_parallel_workers() {
   reset_data
 
   for id in p1 p2 p3 p4 p5 p6; do
-    node bin/queuectl.js enqueue "{\"id\":\"$id\",\"command\":\"ping -n 2 127.0.0.1 > nul\"}" >/dev/null 2>&1
+    node bin/queuectl.js enqueue "{\"id\":\"$id\",\"command\":\"sleep 2\"}" >/dev/null 2>&1
   done
 
   node bin/queuectl.js worker start --count 3 >/dev/null 2>&1
