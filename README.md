@@ -4,7 +4,7 @@ A CLI-based background job queue with retries, exponential backoff, a Dead Lette
 
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![License](https://img.shields.io/badge/license-MIT-blue)
 
-🎥 **Demo video:** [link](#) — walks through enqueue → worker execution → retry/backoff → DLQ → graceful stop → restart persistence.
+🎥 **Demo video:** [link](https://youtu.be/dKhhQ83IoGU) — walks through enqueue → worker execution → retry/backoff → DLQ → graceful stop → restart persistence.
 
 📐 See [`design.md`](./design.md) for architecture diagrams.
 
