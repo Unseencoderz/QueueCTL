@@ -6,7 +6,7 @@ const path = require('path');
 const { loadConfig } = require('../config/configStore');
 const { runCommand } = require('../core/executor');
 const { calculateBackoffSeconds } = require('../core/retry');
-const { tryClaimJob, updateJob } = require('../core/storage');
+const { listJobs, tryClaimJob, updateJob } = require('../core/storage');
 
 const dataDir = path.join(__dirname, '..', '..', 'data');
 const workersPath = path.join(dataDir, 'workers.json');
@@ -56,6 +56,15 @@ function parseWorkerCount(value) {
   }
 
   return count;
+}
+
+function hasEligiblePendingJobs() {
+  const now = Date.now();
+
+  return listJobs().some((job) => (
+    job.state === 'pending'
+    && (!job.next_run_at || new Date(job.next_run_at).getTime() <= now)
+  ));
 }
 
 async function runWorkerLoop(workerId) {
@@ -185,6 +194,11 @@ function registerWorker(program) {
       }
 
       try {
+        if (!hasEligiblePendingJobs()) {
+          console.log('No pending jobs to process');
+          return;
+        }
+
         const summary = await runWorkerPool(parseWorkerCount(options.count));
         console.log(`${summary.completed} completed, ${summary.failed} failed`);
       } catch (error) {

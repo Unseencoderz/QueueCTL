@@ -22,10 +22,18 @@ function ensureJobsFile() {
 
 function readJobsFile() {
   const rawJobs = fs.readFileSync(jobsPath, 'utf8');
-  const jobs = JSON.parse(rawJobs);
+  let jobs;
+
+  try {
+    jobs = JSON.parse(rawJobs);
+  } catch (error) {
+    console.error(`data/jobs.json is corrupted and could not be parsed: ${error.message}`);
+    process.exit(1);
+  }
 
   if (!Array.isArray(jobs)) {
-    throw new Error('jobs.json must contain an array');
+    console.error('data/jobs.json is corrupted: expected an array of jobs.');
+    process.exit(1);
   }
 
   return jobs;

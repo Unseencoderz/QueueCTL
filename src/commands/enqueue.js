@@ -1,5 +1,5 @@
 const { createJob } = require('../core/jobModel');
-const { addJob } = require('../core/storage');
+const { addJob, getJob } = require('../core/storage');
 
 function parsePowerShellStrippedJson(jobJson) {
   const trimmed = jobJson.trim();
@@ -77,6 +77,12 @@ function registerEnqueue(program) {
       }
 
       try {
+        if (fields.id && getJob(fields.id)) {
+          console.error(`Job ${fields.id} already exists`);
+          process.exitCode = 1;
+          return;
+        }
+
         const job = createJob(fields);
         addJob(job);
         console.log(`Job ${job.id} enqueued (state: ${job.state})`);

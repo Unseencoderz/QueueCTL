@@ -2,20 +2,28 @@ const { spawn } = require('child_process');
 
 function runCommand(command) {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (!settled) {
+        settled = true;
+        resolve(result);
+      }
+    };
+
     const child = spawn(command, {
       shell: true,
       stdio: 'inherit',
     });
 
     child.on('error', (error) => {
-      resolve({
+      finish({
         success: false,
         error,
       });
     });
 
     child.on('close', (exitCode) => {
-      resolve({
+      finish({
         success: exitCode === 0,
         exitCode,
       });
