@@ -1,0 +1,11 @@
+[
+  {
+    "id": "d36bf2b9-6783-4fa2-8f31-6a73853c25a8",
+    "command": "echo hello",
+    "state": "pending",
+    "attempts": 0,
+    "max_retries": 3,
+    "created_at": "2026-07-15T08:33:14.558Z",
+    "updated_at": "2026-07-15T08:33:14.558Z"
+  }
+]
