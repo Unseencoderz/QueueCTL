@@ -1,70 +1,87 @@
+# QueueCTL
+
+A CLI-based background job queue with retries, exponential backoff, a Dead Letter Queue, and multi-worker support — built in Node.js.
+
+![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen) ![License](https://img.shields.io/badge/license-MIT-blue)
+
+🎥 **Demo video:** [link](#) — walks through enqueue → worker execution → retry/backoff → DLQ → graceful stop → restart persistence.
+
+📐 See [`design.md`](./design.md) for architecture diagrams.
+
+---
+
+## Quick Start
+
+```sh
+git clone https://github.com/Unseencoderz/QueueCTL
+cd QueueCTL
+npm install
+
+node bin/QueueCTL.js enqueue '{"id":"job1","command":"echo hello"}'
+node bin/QueueCTL.js worker start --count 1
+node bin/QueueCTL.js status
+```
+
+---
+
 ## Setup Instructions
 
-Requires Node.js and npm.
+Requires Node.js 18+ and npm.
 
 ```sh
 npm install
 ```
 
-Run the CLI directly with Node:
+Run directly with Node:
 
 ```sh
-node bin/queuectl.js --help
+node bin/QueueCTL.js --help
 ```
 
-Or use the package bin after linking/installing in the usual npm way:
+Or link it as a global command:
 
 ```sh
 npm link
-queuectl --help
+QueueCTL --help
 ```
 
-Runtime data is stored in `data/jobs.json`, `data/config.json`, and `data/workers.json`.
+Runtime data lives in `data/jobs.json`, `data/config.json`, and `data/workers.json` — created automatically on first run.
 
-## Usage Examples with real command + output pairs for enqueue, worker start, worker stop, status, list, dlq list/retry, config set
+---
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `QueueCTL enqueue '<json>'` | Add a new job to the queue |
+| `QueueCTL worker start --count <n>` | Start `n` worker processes |
+| `QueueCTL worker stop` | Gracefully stop running workers (finishes current job first) |
+| `QueueCTL status` | Show job counts per state + active workers |
+| `QueueCTL list --state <state>` | List jobs, optionally filtered by state |
+| `QueueCTL dlq list` | List jobs in the Dead Letter Queue |
+| `QueueCTL dlq retry <id>` | Reset a dead job back to `pending` |
+| `QueueCTL config set <key> <value>` | Set `max-retries` or `backoff-base` |
+
+Run `QueueCTL <command> --help` for full option details.
+
+---
+
+## Usage Examples
+
+**Configure retries, then enqueue and run a job:**
 
 ```sh
-$ node bin/queuectl.js config set max-retries 2
+$ node bin/QueueCTL.js config set max-retries 2
 Config max-retries set to 2
-```
 
-```sh
-$ node bin/queuectl.js enqueue '{"id":"readme-ok","command":"echo readme"}'
+$ node bin/QueueCTL.js enqueue '{"id":"readme-ok","command":"echo readme"}'
 Job readme-ok enqueued (state: pending)
-```
 
-```sh
-$ node bin/queuectl.js list --state pending
-┌─────────┬─────────────┬───────────┬──────────┬───────────────┬────────────────────────────┐
-│ (index) │ id          │ state     │ attempts │ command       │ updated_at                 │
-├─────────┼─────────────┼───────────┼──────────┼───────────────┼────────────────────────────┤
-│ 0       │ 'readme-ok' │ 'pending' │ 0        │ 'echo readme' │ '2026-07-15T11:30:00.252Z' │
-└─────────┴─────────────┴───────────┴──────────┴───────────────┴────────────────────────────┘
-```
-
-```sh
-$ node bin/queuectl.js status
-pending: 1
-processing: 0
-completed: 0
-failed: 0
-dead: 0
-active workers: 0
-```
-
-```sh
-$ node bin/queuectl.js worker start --count 1
+$ node bin/QueueCTL.js worker start --count 1
 readme
 1 completed, 0 failed
-```
 
-```sh
-$ node bin/queuectl.js worker stop
-No running workers found
-```
-
-```sh
-$ node bin/queuectl.js status
+$ node bin/QueueCTL.js status
 pending: 0
 processing: 0
 completed: 1
@@ -73,98 +90,95 @@ dead: 0
 active workers: 0
 ```
 
-With `max_retries` set to `1`, a command that does not exist moves to the Dead Letter Queue after one failed attempt:
+**A job that keeps failing moves to the DLQ, and can be retried from there:**
 
 ```sh
-$ node bin/queuectl.js enqueue '{"id":"readme-dead","command":"definitely-missing-queuectl-command"}'
+$ node bin/QueueCTL.js enqueue '{"id":"readme-dead","command":"definitely-missing-QueueCTL-command"}'
 Job readme-dead enqueued (state: pending)
-```
 
-```sh
-$ node bin/queuectl.js worker start --count 1
-'definitely-missing-queuectl-command' is not recognized as an internal or external command,
-operable program or batch file.
+$ node bin/QueueCTL.js worker start --count 1
 0 completed, 1 failed
-```
 
-```sh
-$ node bin/queuectl.js dlq list
-┌─────────┬───────────────┬────────┬───────────────────────────────────────┬──────────┬────────────────────────────┐
-│ (index) │ id            │ state  │ command                               │ attempts │ updated_at                 │
-├─────────┼───────────────┼────────┼───────────────────────────────────────┼──────────┼────────────────────────────┤
-│ 0       │ 'readme-dead' │ 'dead' │ 'definitely-missing-queuectl-command' │ 1        │ '2026-07-15T11:31:50.465Z' │
-└─────────┴───────────────┴────────┴───────────────────────────────────────┴──────────┴────────────────────────────┘
-```
+$ node bin/QueueCTL.js dlq list
+┌─────────┬───────────────┬────────┬───────────────────────────────────────┬──────────┐
+│ (index) │ id            │ state  │ command                                │ attempts │
+├─────────┼───────────────┼────────┼───────────────────────────────────────┼──────────┤
+│ 0       │ 'readme-dead' │ 'dead' │ 'definitely-missing-QueueCTL-command'  │ 1        │
+└─────────┴───────────────┴────────┴───────────────────────────────────────┴──────────┘
 
-```sh
-$ node bin/queuectl.js dlq retry readme-dead
+$ node bin/QueueCTL.js dlq retry readme-dead
 Job readme-dead moved back to pending
 ```
 
+**Listing and stopping workers:**
+
 ```sh
-$ node bin/queuectl.js list --state pending
-┌─────────┬───────────────┬───────────┬──────────┬───────────────────────────────────────┬────────────────────────────┐
-│ (index) │ id            │ state     │ attempts │ command                               │ updated_at                 │
-├─────────┼───────────────┼───────────┼──────────┼───────────────────────────────────────┼────────────────────────────┤
-│ 0       │ 'readme-dead' │ 'pending' │ 0        │ 'definitely-missing-queuectl-command' │ '2026-07-15T11:31:51.256Z' │
-└─────────┴───────────────┴───────────┴──────────┴───────────────────────────────────────┴────────────────────────────┘
+$ node bin/QueueCTL.js list --state pending
+┌─────────┬───────────────┬───────────┬──────────┬───────────────────────────────────────┐
+│ (index) │ id            │ state     │ attempts │ command                                │
+├─────────┼───────────────┼───────────┼──────────┼───────────────────────────────────────┤
+│ 0       │ 'readme-dead' │ 'pending' │ 0        │ 'definitely-missing-QueueCTL-command'  │
+└─────────┴───────────────┴───────────┴──────────┴───────────────────────────────────────┘
+
+$ node bin/QueueCTL.js worker stop
+No running workers found
 ```
+
+> Note: error text for a missing command (e.g. `'X' is not recognized...` vs `command not found`) depends on the host OS shell — see Assumptions below.
+
+---
 
 ## Architecture Overview
 
-Job lifecycle state diagram:
-
-```text
-enqueue
-  |
-  v
-pending --worker claim--> processing --exit 0--> completed
-  ^                         |
-  |                         v
-  |                 command failed
-  |                         |
-  |         attempts < max_retries
-  |                         |
-  +---- pending with next_run_at
-                            |
-              attempts >= max_retries
-                            |
-                            v
-                           dead
-
-dead --dlq retry--> pending
+```
+enqueue → pending → [worker claims job] → processing
+                                              ├── exit 0            → completed
+                                              ├── exit ≠ 0, retries left → pending (delayed via next_run_at)
+                                              └── exit ≠ 0, retries exhausted → dead → (dlq retry) → pending
 ```
 
-Jobs are plain objects with fields including `id`, `command`, `state`, `attempts`, `max_retries`, `created_at`, `updated_at`, and nullable `next_run_at`. Jobs are persisted as an array in `data/jobs.json`. Configuration is persisted in `data/config.json`, currently `max_retries` and `backoff_base`.
+- Jobs are stored as a JSON array in `data/jobs.json`; config in `data/config.json`.
+- Writes use a temp-file + rename pattern, with a `data/jobs.json.lock` file guarding
+  concurrent read-modify-write updates from multiple workers.
+- `worker start --count N` forks `N` child Node processes. Each claims one job at a
+  time via `tryClaimJob(workerId)`, executes its command, and updates its own state.
+  Worker PIDs are tracked in `data/workers.json` so `worker stop` can signal them.
 
-Writes to `jobs.json` use a temp-file-and-rename pattern: write `data/jobs.json.tmp`, then rename it over `data/jobs.json`. Storage also uses a `data/jobs.json.lock` file while changing jobs so worker processes do not overwrite each other's read-modify-write updates.
+Full diagrams (component view + state machine) are in [`design.md`](./design.md).
 
-`worker start --count N` forks `N` child Node processes. Each child gets a `workerId`, calls `tryClaimJob(workerId)`, marks one eligible pending job as `processing`, runs the shell command, and updates the job to `completed`, back to scheduled `pending`, or `dead`. Worker PIDs are tracked in `data/workers.json`; `worker stop` uses that registry to request/signals workers and then clears it. `status` currently reports `active workers: 0` as a placeholder rather than reading live worker state.
+---
 
 ## Assumptions & Trade-offs
 
-JSON file storage is used instead of SQLite or another database to keep the project small and transparent.
+- **JSON file storage**, not SQLite, to keep the project small and easy to inspect/explain.
+- **One child process per worker** for true parallel execution, instead of a custom
+  in-process scheduler.
+- **File-lock based concurrency**, not database transactions — sufficient at this
+  scale, but a crashed worker can leave a job stuck in `processing` (`locked_by` set).
+  Crash recovery for abandoned jobs is not implemented.
+- **Backoff is deterministic**: `backoff_base ^ attempts` seconds. Jobs are skipped
+  by the worker until their `next_run_at` has passed.
+- **Commands run via `spawn(cmd, { shell: true })`**, so command syntax and "not
+  found" error text depend on the host OS/shell.
 
-One child process per worker gives true parallel command execution without building a worker scheduler inside one Node event loop.
-
-The single-file lock strategy is simple and works for this project scale, but it is not a replacement for database transactions. A crashed process can leave a job in `processing` with `locked_by` set; crash recovery is not implemented yet.
-
-Retry backoff is deterministic: `Math.pow(backoff_base, attempts)` seconds. Jobs whose `next_run_at` is in the future are skipped until they become eligible.
-
-Shell commands run with `spawn(..., { shell: true })`, so command syntax and command-not-found messages depend on the host shell and operating system.
+---
 
 ## Testing Instructions
 
-Run the validation script:
-
 ```sh
+npm test
+# or
 bash test/validate.sh
 ```
 
-Or use npm:
+The script backs up `data/jobs.json`, `data/config.json`, and `data/workers.json`,
+runs end-to-end scenarios (success, retry-to-DLQ, parallel workers, invalid command,
+persistence across restarts), then restores your original data.
 
-```sh
-npm test
-```
+On Windows, run it from an environment with Bash (Git Bash or WSL).
 
-The script backs up `data/jobs.json`, `data/config.json`, and `data/workers.json`, runs end-to-end CLI scenarios, then restores the original runtime files. On Windows, use an environment that provides Bash, such as Git Bash or WSL with a Linux distribution installed.
+---
+
+## License
+
+MIT

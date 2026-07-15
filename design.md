@@ -1,52 +1,63 @@
 # queuectl Design
 
-```text
-                 +----------------+
-                 | queuectl CLI   |
-                 +----------------+
-                   |     |     |
-       enqueue ----+     |     +---- config set/get/list
-                         |
-                         v
-                  +-------------+
-                  | jobs.json   |
-                  | config.json |
-                  +-------------+
-                         ^
-                         |
-       +-----------------+-----------------+
-       |                                   |
-+---------------+                  +---------------+
-| worker child  |                  | dlq commands  |
-| tryClaimJob   |                  | list/retry    |
-+---------------+                  +---------------+
+## Component Overview
+
+```mermaid
+flowchart TD
+    CLI["queuectl CLI"]
+    Jobs[("data/jobs.json")]
+    Config[("data/config.json")]
+    Worker["Worker child process\n(tryClaimJob)"]
+    DLQ["dlq list / dlq retry"]
+
+    CLI -->|enqueue| Jobs
+    CLI -->|list / status| Jobs
+    CLI -->|config set/get/list| Config
+    CLI -->|worker start/stop| Worker
+    DLQ --> Jobs
+    Worker -->|claim, update state| Jobs
+    Worker -->|read defaults| Config
 ```
 
-Job lifecycle:
+## Job Lifecycle
 
-```text
-pending -> processing -> completed
-   ^          |
-   |          +-> pending with next_run_at, when attempts < max_retries
-   |          |
-   |          +-> dead, when attempts >= max_retries
-   |
-dead --dlq retry--> pending
+```mermaid
+stateDiagram-v2
+    [*] --> pending: enqueue
+    pending --> processing: worker claims job
+    processing --> completed: exit code 0
+    processing --> pending: exit code != 0\n(attempts < max_retries)\nnext_run_at scheduled
+    processing --> dead: exit code != 0\n(attempts >= max_retries)
+    dead --> pending: dlq retry
+    completed --> [*]
 ```
 
-Responsibilities:
+## Responsibilities
 
-- `src/commands/*`: CLI parsing, user-facing messages, and command orchestration.
-- `src/core/jobModel.js`: creates validated job objects and applies defaults.
-- `src/core/storage.js`: reads/writes `data/jobs.json`, uses temp-file rename writes, and claims jobs with a file lock.
-- `src/core/executor.js`: runs shell commands and returns success/failure instead of throwing for normal command failures.
-- `src/core/retry.js`: calculates retry backoff.
-- `src/config/configStore.js`: reads/writes queue runtime config.
+| Module | Responsibility |
+|---|---|
+| `src/commands/*` | CLI parsing, user-facing messages, command orchestration |
+| `src/core/jobModel.js` | Builds and validates job objects, applies defaults |
+| `src/core/storage.js` | Reads/writes `data/jobs.json`; atomic temp-file+rename writes; file-locked job claiming |
+| `src/core/executor.js` | Runs shell commands, returns success/failure (never throws on a normal command failure) |
+| `src/core/retry.js` | Computes exponential backoff delay |
+| `src/config/configStore.js` | Reads/writes runtime config (`max_retries`, `backoff_base`) |
 
-Concurrency model:
+## Concurrency Model
 
-`worker start --count N` forks `N` child processes. Each child synchronously claims one due pending job through `tryClaimJob(workerId)`, which flips the job to `processing` while holding the file lock. After command execution, the worker updates the same job to `completed`, scheduled `pending`, or `dead`.
+`worker start --count N` forks `N` child processes. Each child:
 
-Known limitation:
+1. Synchronously claims one due, pending job via `tryClaimJob(workerId)`, which
+   flips the job to `processing` while holding the file lock — this is what
+   prevents two workers from picking up the same job.
+2. Executes the job's command.
+3. Updates that same job to `completed`, back to `pending` (with `next_run_at`
+   set), or `dead`, depending on the result.
 
-If a worker crashes while a job is `processing`, the job can remain stuck with `locked_by` set. Recovery of abandoned processing jobs is intentionally left for a later milestone.
+## Known Limitation
+
+If a worker crashes mid-job, that job can remain stuck in `processing` with
+`locked_by` still set. Recovery of abandoned `processing` jobs is intentionally
+out of scope for now — a future milestone could add a staleness check (e.g. a
+`processing` job untouched for longer than a threshold gets released back to
+`pending`).
