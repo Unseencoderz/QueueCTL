@@ -2,26 +2,41 @@ const { Command } = require('commander');
 
 const { loadConfig, saveConfig } = require('../config/configStore');
 
-function normalizeConfigKey(key) {
-  return key.replace(/-/g, '_');
-}
+const CONFIG_KEYS = {
+  'max-retries': {
+    storeKey: 'max_retries',
+    validate(value) {
+      const parsedValue = Number(value);
 
-function parseConfigValue(value) {
-  const numericValue = Number(value);
+      if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+        throw new Error('max-retries must be a positive integer');
+      }
 
-  if (value.trim() !== '' && !Number.isNaN(numericValue)) {
-    return numericValue;
+      return parsedValue;
+    },
+  },
+  'backoff-base': {
+    storeKey: 'backoff_base',
+    validate(value) {
+      const parsedValue = Number(value);
+
+      if (Number.isNaN(parsedValue) || parsedValue <= 0) {
+        throw new Error('backoff-base must be a positive number');
+      }
+
+      return parsedValue;
+    },
+  },
+};
+
+function getConfigEntry(key) {
+  const entry = CONFIG_KEYS[key];
+
+  if (!entry) {
+    throw new Error(`Unknown config key "${key}". Valid keys: ${Object.keys(CONFIG_KEYS).join(', ')}`);
   }
 
-  if (value === 'true') {
-    return true;
-  }
-
-  if (value === 'false') {
-    return false;
-  }
-
-  return value;
+  return entry;
 }
 
 function registerConfig(program) {
@@ -34,14 +49,42 @@ function registerConfig(program) {
     .argument('<value>', 'Configuration value to set.')
     .description('Updates queue configuration values such as maximum retries, backoff policy, and other runtime settings.')
     .action((key, value) => {
-      const normalizedKey = normalizeConfigKey(key);
-      const configValues = loadConfig();
-      const parsedValue = parseConfigValue(value);
+      try {
+        const entry = getConfigEntry(key);
+        const configValues = loadConfig();
+        const parsedValue = entry.validate(value);
 
-      configValues[normalizedKey] = parsedValue;
-      saveConfig(configValues);
+        configValues[entry.storeKey] = parsedValue;
+        saveConfig(configValues);
 
-      console.log(`Config ${normalizedKey} set to ${parsedValue}`);
+        console.log(`Config ${key} set to ${parsedValue}`);
+      } catch (error) {
+        console.error(error.message);
+        process.exitCode = 1;
+      }
+    });
+
+  config
+    .command('get')
+    .argument('<key>', 'Configuration key to read.')
+    .description('Displays a single queue configuration value.')
+    .action((key) => {
+      try {
+        const entry = getConfigEntry(key);
+        const configValues = loadConfig();
+
+        console.log(`${key}: ${configValues[entry.storeKey]}`);
+      } catch (error) {
+        console.error(error.message);
+        process.exitCode = 1;
+      }
+    });
+
+  config
+    .command('list')
+    .description('Displays the full current queue configuration.')
+    .action(() => {
+      console.table(loadConfig());
     });
 
   program.addCommand(config);
