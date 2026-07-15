@@ -2,6 +2,9 @@
   "name": "queuectl",
   "version": "0.1.0",
   "description": "CLI scaffolding for queue management.",
+  "scripts": {
+    "test": "bash test/validate.sh"
+  },
   "bin": {
     "queuectl": "bin/queuectl.js"
   },
