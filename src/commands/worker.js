@@ -73,7 +73,7 @@ function registerWorker(program) {
           });
         } else {
           updateJob(processingJob.id, {
-            state: 'failed',
+            state: 'dead',
             attempts,
             next_run_at: null,
           });
