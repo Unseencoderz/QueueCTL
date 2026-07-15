@@ -4,6 +4,7 @@ const path = require('path');
 const dataDir = path.join(__dirname, '..', '..', 'data');
 const jobsPath = path.join(dataDir, 'jobs.json');
 const tempJobsPath = path.join(dataDir, 'jobs.json.tmp');
+const lockPath = path.join(dataDir, 'jobs.json.lock');
 
 function ensureDataDir() {
   if (!fs.existsSync(dataDir)) {
@@ -19,9 +20,7 @@ function ensureJobsFile() {
   }
 }
 
-function loadJobs() {
-  ensureJobsFile();
-
+function readJobsFile() {
   const rawJobs = fs.readFileSync(jobsPath, 'utf8');
   const jobs = JSON.parse(rawJobs);
 
@@ -32,21 +31,67 @@ function loadJobs() {
   return jobs;
 }
 
+function writeJobsFile(jobs) {
+  fs.writeFileSync(tempJobsPath, `${JSON.stringify(jobs, null, 2)}\n`, 'utf8');
+  fs.renameSync(tempJobsPath, jobsPath);
+}
+
+function acquireJobsLock() {
+  ensureDataDir();
+
+  const startedAt = Date.now();
+
+  while (true) {
+    try {
+      return fs.openSync(lockPath, 'wx');
+    } catch (error) {
+      if (error.code !== 'EEXIST' && error.code !== 'EPERM') {
+        throw error;
+      }
+
+      if (Date.now() - startedAt > 10000) {
+        throw new Error('Timed out waiting for jobs lock');
+      }
+    }
+  }
+}
+
+function withJobsLock(operation) {
+  const lockFile = acquireJobsLock();
+
+  try {
+    return operation();
+  } finally {
+    fs.closeSync(lockFile);
+    fs.unlinkSync(lockPath);
+  }
+}
+
+function loadJobs() {
+  ensureJobsFile();
+  return readJobsFile();
+}
+
 function saveJobs(jobs) {
   if (!Array.isArray(jobs)) {
     throw new Error('jobs must be an array');
   }
 
-  ensureDataDir();
-  fs.writeFileSync(tempJobsPath, `${JSON.stringify(jobs, null, 2)}\n`, 'utf8');
-  fs.renameSync(tempJobsPath, jobsPath);
+  ensureJobsFile();
+  withJobsLock(() => {
+    writeJobsFile(jobs);
+  });
 }
 
 function addJob(job) {
-  const jobs = loadJobs();
-  jobs.push(job);
-  saveJobs(jobs);
-  return job;
+  ensureJobsFile();
+
+  return withJobsLock(() => {
+    const jobs = readJobsFile();
+    jobs.push(job);
+    writeJobsFile(jobs);
+    return job;
+  });
 }
 
 function getJob(id) {
@@ -54,23 +99,27 @@ function getJob(id) {
 }
 
 function updateJob(id, patch) {
-  const jobs = loadJobs();
-  const jobIndex = jobs.findIndex((job) => job.id === id);
+  ensureJobsFile();
 
-  if (jobIndex === -1) {
-    return undefined;
-  }
+  return withJobsLock(() => {
+    const jobs = readJobsFile();
+    const jobIndex = jobs.findIndex((job) => job.id === id);
 
-  const updatedJob = {
-    ...jobs[jobIndex],
-    ...patch,
-    id: jobs[jobIndex].id,
-    updated_at: new Date().toISOString(),
-  };
+    if (jobIndex === -1) {
+      return undefined;
+    }
 
-  jobs[jobIndex] = updatedJob;
-  saveJobs(jobs);
-  return updatedJob;
+    const updatedJob = {
+      ...jobs[jobIndex],
+      ...patch,
+      id: jobs[jobIndex].id,
+      updated_at: new Date().toISOString(),
+    };
+
+    jobs[jobIndex] = updatedJob;
+    writeJobsFile(jobs);
+    return updatedJob;
+  });
 }
 
 function listJobs() {
@@ -81,6 +130,39 @@ function listByState(state) {
   return loadJobs().filter((job) => job.state === state);
 }
 
+function tryClaimJob(workerId) {
+  ensureJobsFile();
+
+  return withJobsLock(() => {
+    const jobs = readJobsFile();
+    const now = Date.now();
+    const claimableJobs = jobs
+      .map((job, index) => ({ job, index }))
+      .filter(({ job }) => (
+        job.state === 'pending'
+        && (!job.next_run_at || new Date(job.next_run_at).getTime() <= now)
+      ))
+      .sort((a, b) => new Date(a.job.created_at) - new Date(b.job.created_at));
+
+    if (claimableJobs.length === 0) {
+      return null;
+    }
+
+    const claimedIndex = claimableJobs[0].index;
+    const claimedJob = {
+      ...jobs[claimedIndex],
+      state: 'processing',
+      locked_by: workerId,
+      next_run_at: null,
+      updated_at: new Date().toISOString(),
+    };
+
+    jobs[claimedIndex] = claimedJob;
+    writeJobsFile(jobs);
+    return claimedJob;
+  });
+}
+
 module.exports = {
   loadJobs,
   saveJobs,
@@ -89,4 +171,5 @@ module.exports = {
   updateJob,
   listJobs,
   listByState,
+  tryClaimJob,
 };
