@@ -34,5 +34,15 @@
     "max_retries": 3,
     "created_at": "2026-07-15T09:06:29.629Z",
     "updated_at": "2026-07-15T09:06:38.613Z"
+  },
+  {
+    "id": "flaky1",
+    "command": "nonexistent-cmd-xyz",
+    "state": "failed",
+    "attempts": 3,
+    "max_retries": 3,
+    "created_at": "2026-07-15T09:19:15.642Z",
+    "updated_at": "2026-07-15T09:19:39.704Z",
+    "next_run_at": null
   }
 ]

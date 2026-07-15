@@ -18,6 +18,7 @@ function createJob(fields = {}) {
     max_retries: fields.max_retries ?? config.max_retries,
     created_at: fields.created_at || now,
     updated_at: fields.updated_at || now,
+    next_run_at: fields.next_run_at ?? null,
   };
 }
 

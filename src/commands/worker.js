@@ -1,6 +1,8 @@
 const { Command } = require('commander');
 
+const { loadConfig } = require('../config/configStore');
 const { runCommand } = require('../core/executor');
+const { calculateBackoffSeconds } = require('../core/retry');
 const { listByState, updateJob } = require('../core/storage');
 
 function parseWorkerCount(value) {
@@ -14,7 +16,10 @@ function parseWorkerCount(value) {
 }
 
 function getOldestPendingJob() {
+  const now = Date.now();
+
   return listByState('pending')
+    .filter((job) => !job.next_run_at || new Date(job.next_run_at).getTime() <= now)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
 }
 
@@ -37,25 +42,41 @@ function registerWorker(program) {
 
       let completed = 0;
       let failed = 0;
+      const config = loadConfig();
       let job = getOldestPendingJob();
 
       while (job) {
         const processingJob = updateJob(job.id, {
           state: 'processing',
+          next_run_at: null,
         });
 
         const result = await runCommand(processingJob.command);
         const attempts = (processingJob.attempts ?? 0) + 1;
-        const nextState = result.success ? 'completed' : 'failed';
-
-        updateJob(processingJob.id, {
-          state: nextState,
-          attempts,
-        });
+        const maxRetries = processingJob.max_retries ?? config.max_retries;
 
         if (result.success) {
+          updateJob(processingJob.id, {
+            state: 'completed',
+            attempts,
+            next_run_at: null,
+          });
           completed += 1;
+        } else if (attempts < maxRetries) {
+          const backoffSeconds = calculateBackoffSeconds(attempts, config.backoff_base);
+          const nextRunAt = new Date(Date.now() + backoffSeconds * 1000).toISOString();
+
+          updateJob(processingJob.id, {
+            state: 'pending',
+            attempts,
+            next_run_at: nextRunAt,
+          });
         } else {
+          updateJob(processingJob.id, {
+            state: 'failed',
+            attempts,
+            next_run_at: null,
+          });
           failed += 1;
         }
 
