@@ -1,0 +1,11 @@
+{
+  "name": "queuectl",
+  "version": "0.1.0",
+  "description": "CLI scaffolding for queue management.",
+  "bin": {
+    "queuectl": "bin/queuectl.js"
+  },
+  "dependencies": {
+    "commander": "^14.0.0"
+  }
+}
