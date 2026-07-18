@@ -23,12 +23,18 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: enqueue
-    pending --> processing: worker claims job
-    processing --> completed: exit code 0
-    processing --> pending: exit code != 0\n(attempts < max_retries)\nnext_run_at scheduled
-    processing --> dead: exit code != 0\n(attempts >= max_retries)
-    dead --> pending: dlq retry
+    [*] --> pending : enqueue
+
+    pending --> processing : worker claims job
+
+    processing --> completed : success
+    processing --> retry : failed
+    processing --> dead : retries exhausted
+
+    retry --> pending : next_run_at
+
+    dead --> pending : dlq retry
+
     completed --> [*]
 ```
 
